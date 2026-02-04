@@ -61,6 +61,10 @@ def default_exclude_exts_text() -> str:
     return ", ".join(sorted(DEFAULT_EXCLUDED_EXTS))
 
 
+def default_exclude_exts_list() -> list[str]:
+    return sorted(DEFAULT_EXCLUDED_EXTS)
+
+
 @dataclass(frozen=True)
 class Filters:
     excluded_exts: set[str]

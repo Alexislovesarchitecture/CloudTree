@@ -17,6 +17,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
 from cloud_tree_core import (
+    default_exclude_exts_list,
     default_exclude_exts_text,
     load_config,
     parse_exclude_exts,
@@ -70,6 +71,7 @@ class CloudTreeApp:
         self._last_outdir: Path | None = None
         self._last_output_paths: list[str] = []
         self._label_user_set = False
+        self._filters_dialog: tk.Toplevel | None = None
 
         self._build_ui()
         self._load_config()
@@ -82,6 +84,34 @@ class CloudTreeApp:
         self.root.grid_rowconfigure(0, weight=1)
         self.root.grid_columnconfigure(0, weight=1)
         main.grid_columnconfigure(0, weight=1)
+
+        menubar = tk.Menu(self.root)
+        self.root.config(menu=menubar)
+
+        file_menu = tk.Menu(menubar, tearoff=False)
+        file_menu.add_command(label="Select Root…", command=self._browse_root)
+        file_menu.add_command(label="Select Output…", command=self._browse_out)
+        file_menu.add_separator()
+        file_menu.add_command(label="Run", command=self._start_run)
+        file_menu.add_command(label="Open Output Folder", command=self._open_output)
+        file_menu.add_separator()
+        file_menu.add_command(label="Exit", command=self.root.quit)
+        menubar.add_cascade(label="File", menu=file_menu)
+
+        filters_menu = tk.Menu(menubar, tearoff=False)
+        filters_menu.add_command(label="Advanced Filters…", command=self._open_filters_dialog)
+        filters_menu.add_command(label="Reset Filters", command=self._reset_filters)
+        menubar.add_cascade(label="Filters", menu=filters_menu)
+
+        help_menu = tk.Menu(menubar, tearoff=False)
+        help_menu.add_command(
+            label="About CloudTree",
+            command=lambda: messagebox.showinfo(
+                "About CloudTree",
+                "CloudTree creates filtered tree and TSV snapshots for any folder.",
+            ),
+        )
+        menubar.add_cascade(label="Help", menu=help_menu)
 
         title = ttk.Label(main, text="CloudTree", font=("TkDefaultFont", 14, "bold"))
         title.grid(row=0, column=0, sticky="w", pady=(0, 8))
@@ -133,6 +163,9 @@ class CloudTreeApp:
         filters.grid_columnconfigure(1, weight=1)
         ttk.Label(filters, text="Exclude extensions (comma/space):").grid(row=0, column=0, sticky="w")
         ttk.Entry(filters, textvariable=self.exclude_exts_var).grid(row=0, column=1, sticky="ew", padx=(8, 0))
+        ttk.Button(filters, text="Advanced…", command=self._open_filters_dialog).grid(
+            row=0, column=2, sticky="e", padx=(8, 0)
+        )
         ttk.Label(filters, text="Exclude words (comma/line):").grid(row=1, column=0, sticky="w", pady=(6, 0))
         ttk.Entry(filters, textvariable=self.exclude_words_var).grid(row=1, column=1, sticky="ew", padx=(8, 0), pady=(6, 0))
 
@@ -245,6 +278,152 @@ class CloudTreeApp:
                     "Output folder cannot be inside the app bundle. Resetting to default.",
                 )
             self.out_var.set(str(resolve_default_outdir()))
+
+    def _reset_filters(self) -> None:
+        self.exclude_exts_var.set(default_exclude_exts_text())
+        self.exclude_words_var.set("")
+
+    def _center_window(self, win: tk.Toplevel) -> None:
+        win.update_idletasks()
+        self.root.update_idletasks()
+        width = win.winfo_width() or win.winfo_reqwidth()
+        height = win.winfo_height() or win.winfo_reqheight()
+        root_x = self.root.winfo_rootx()
+        root_y = self.root.winfo_rooty()
+        root_w = self.root.winfo_width()
+        root_h = self.root.winfo_height()
+        x = max(root_x + (root_w - width) // 2, 0)
+        y = max(root_y + (root_h - height) // 2, 0)
+        win.geometry(f"{width}x{height}+{x}+{y}")
+
+    def _open_filters_dialog(self) -> None:
+        if self._filters_dialog and self._filters_dialog.winfo_exists():
+            self._filters_dialog.lift()
+            self._filters_dialog.focus_force()
+            return
+
+        dlg = tk.Toplevel(self.root)
+        self._filters_dialog = dlg
+        dlg.title("Advanced Filters")
+        dlg.transient(self.root)
+        dlg.grab_set()
+
+        def close_dialog() -> None:
+            if self._filters_dialog and self._filters_dialog.winfo_exists():
+                try:
+                    self._filters_dialog.grab_release()
+                except tk.TclError:
+                    pass
+                self._filters_dialog.destroy()
+            self._filters_dialog = None
+
+        dlg.protocol("WM_DELETE_WINDOW", close_dialog)
+
+        main = ttk.Frame(dlg, padding=12)
+        main.grid(row=0, column=0, sticky="nsew")
+        dlg.grid_rowconfigure(0, weight=1)
+        dlg.grid_columnconfigure(0, weight=1)
+
+        ext_frame = ttk.Labelframe(main, text="Exclude extensions", padding=10)
+        ext_frame.grid(row=0, column=0, sticky="ew")
+        ext_frame.grid_columnconfigure(0, weight=1)
+
+        preset_exts = default_exclude_exts_list()
+        preset_set = set(preset_exts)
+        current_exts = parse_exclude_exts(self.exclude_exts_var.get())
+        other_exts = sorted(current_exts - preset_set)
+        other_exts_var = tk.StringVar(master=dlg, value=", ".join(other_exts))
+
+        preset_grid = ttk.Frame(ext_frame)
+        preset_grid.grid(row=0, column=0, sticky="ew")
+
+        ext_vars: dict[str, tk.BooleanVar] = {}
+        cols = 6
+        for idx, ext in enumerate(preset_exts):
+            var = tk.BooleanVar(master=dlg, value=ext in current_exts)
+            ext_vars[ext] = var
+            ttk.Checkbutton(preset_grid, text=ext, variable=var).grid(
+                row=idx // cols,
+                column=idx % cols,
+                sticky="w",
+                padx=(0, 10),
+                pady=2,
+            )
+
+        ttk.Label(ext_frame, text="Other extensions (comma/space):").grid(
+            row=1, column=0, sticky="w", pady=(8, 0)
+        )
+        ttk.Entry(ext_frame, textvariable=other_exts_var).grid(
+            row=2, column=0, sticky="ew", pady=(4, 0)
+        )
+
+        ext_btns = ttk.Frame(ext_frame)
+        ext_btns.grid(row=3, column=0, sticky="w", pady=(8, 0))
+
+        def select_all() -> None:
+            for var in ext_vars.values():
+                var.set(True)
+
+        def clear_all() -> None:
+            for var in ext_vars.values():
+                var.set(False)
+            other_exts_var.set("")
+
+        def reset_defaults() -> None:
+            for var in ext_vars.values():
+                var.set(True)
+            other_exts_var.set("")
+
+        ttk.Button(ext_btns, text="Select All", command=select_all).grid(row=0, column=0, padx=(0, 8))
+        ttk.Button(ext_btns, text="Clear All", command=clear_all).grid(row=0, column=1, padx=(0, 8))
+        ttk.Button(ext_btns, text="Reset to Defaults", command=reset_defaults).grid(row=0, column=2)
+
+        words_frame = ttk.Labelframe(main, text="Exclude words/phrases", padding=10)
+        words_frame.grid(row=1, column=0, sticky="ew", pady=(10, 0))
+        words_frame.grid_columnconfigure(0, weight=1)
+
+        current_words = parse_exclude_words(self.exclude_words_var.get())
+        words_enabled_var = tk.BooleanVar(master=dlg, value=bool(current_words))
+
+        def set_words_state() -> None:
+            state = "normal" if words_enabled_var.get() else "disabled"
+            words_text.configure(state=state)
+
+        ttk.Checkbutton(
+            words_frame,
+            text="Enable exclude words",
+            variable=words_enabled_var,
+            command=set_words_state,
+        ).grid(row=0, column=0, sticky="w")
+
+        words_text = tk.Text(words_frame, height=6, wrap="word")
+        words_text.grid(row=1, column=0, sticky="ew", pady=(6, 0))
+        if current_words:
+            words_text.insert("1.0", "\n".join(sorted(current_words)))
+        set_words_state()
+
+        action_frame = ttk.Frame(main)
+        action_frame.grid(row=2, column=0, sticky="e", pady=(12, 0))
+
+        def apply_filters() -> None:
+            selected_exts = {ext for ext, var in ext_vars.items() if var.get()}
+            selected_exts.update(parse_exclude_exts(other_exts_var.get()))
+            self.exclude_exts_var.set(", ".join(sorted(selected_exts)))
+
+            if not words_enabled_var.get():
+                self.exclude_words_var.set("")
+            else:
+                words_raw = words_text.get("1.0", "end").strip()
+                words = parse_exclude_words(words_raw)
+                self.exclude_words_var.set("\n".join(sorted(words)))
+
+            close_dialog()
+
+        ttk.Button(action_frame, text="Cancel", command=close_dialog).grid(row=0, column=0, padx=(0, 8))
+        ttk.Button(action_frame, text="Apply", command=apply_filters).grid(row=0, column=1)
+
+        self._center_window(dlg)
+        dlg.focus_force()
 
     def _log(self, msg: str) -> None:
         self.log_text.configure(state="normal")

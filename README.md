@@ -78,6 +78,8 @@ Exclude words (case-insensitive, editable in the GUI):
 
 - Any word or phrase you enter will remove files or folders whose names contain it.
 - Extensions field accepts comma/space separation. Words field accepts comma or line separation.
+- The GUI includes an Advanced Filters dialog with checkbox presets for common extensions.
+- Keyword filtering is case-insensitive and matches file/folder names.
 
 ## Notes
 
