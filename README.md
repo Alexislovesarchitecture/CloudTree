@@ -18,6 +18,13 @@ CLI:
 python3.14 cloud_tree.py --root "/path/to/folder" --label mylabel
 ```
 
+## Environment Setup
+
+```
+./scripts/create_env.sh
+source .venv/bin/activate
+```
+
 CLI examples:
 
 ```
